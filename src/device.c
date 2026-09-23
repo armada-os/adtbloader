@@ -14,14 +14,39 @@
 __declspec(allocate(".devs$a")) struct device *__start_dtbloader_dev = NULL;
 __declspec(allocate(".devs$d")) struct device *__stop_dtbloader_dev = NULL;
 
-static struct device armada_retroid_pocket_nova = {
-	.name = L"Retroid Pocket Nova",
-	.dtb = L"qcom\\qcs8550-retroidpocket-rpnova.dtb",
+struct armada_device_match {
+	struct device device;
+	const char *android_compatible;
+	const char *primary_panel;
+	const char *secondary_panel;
 };
 
-static struct device armada_ayn_thor = {
-	.name = L"AYN Thor",
-	.dtb = L"qcom\\qcs8550-ayn-thor.dtb",
+static struct armada_device_match armada_devices[] = {
+	{
+		.device = {
+			.name = L"Retroid Pocket Nova",
+			.dtb = L"qcom\\qcs8550-retroidpocket-rpnova.dtb",
+		},
+		.android_compatible = "qcom,kalamap-hdk",
+		.primary_panel = "il97680a amoled panel without DSC",
+	},
+	{
+		.device = {
+			.name = L"AYN Thor",
+			.dtb = L"qcom\\qcs8550-ayn-thor.dtb",
+		},
+		.android_compatible = "qcom,kalamap-hdk",
+		.primary_panel = "icna3520 amoled panel with DSC",
+		.secondary_panel = "ch13726a video mode dsi boe panel with DSC",
+	},
+	{
+		.device = {
+			.name = L"AYN Odin 3",
+			.dtb = L"qcom\\cq8725s-ayn-odin3.dtb",
+		},
+		.android_compatible = "qcom,sunp-hdk",
+		.primary_panel = "icna3520 amoled panel with DSC",
+	},
 };
 
 static bool panel_name_is(void *dtb, const char *display_path, const char *expected)
@@ -49,7 +74,9 @@ static bool panel_name_is(void *dtb, const char *display_path, const char *expec
 static struct device *match_armada_device(void)
 {
 	EFI_GUID dtb_table_guid = EFI_DTB_TABLE_GUID;
+	struct device *match = NULL;
 	void *android_dtb;
+	unsigned i;
 
 	if (EFI_ERROR(LibGetSystemConfigurationTable(&dtb_table_guid, &android_dtb)))
 		return NULL;
@@ -57,20 +84,28 @@ static struct device *match_armada_device(void)
 	if (fdt_check_header(android_dtb))
 		return NULL;
 
-	if (fdt_node_check_compatible(android_dtb, 0, "qcom,kalamap-hdk"))
-		return NULL;
+	for (i = 0; i < ARRAY_SIZE(armada_devices); ++i) {
+		struct armada_device_match *dev = &armada_devices[i];
 
-	if (panel_name_is(android_dtb, "/soc/qcom,dsi-display-primary",
-			  "il97680a amoled panel without DSC"))
-		return &armada_retroid_pocket_nova;
+		if (fdt_node_check_compatible(android_dtb, 0, dev->android_compatible))
+			continue;
 
-	if (panel_name_is(android_dtb, "/soc/qcom,dsi-display-primary",
-			  "icna3520 amoled panel with DSC") &&
-	    panel_name_is(android_dtb, "/soc/qcom,dsi-display-secondary",
-			  "ch13726a video mode dsi boe panel with DSC"))
-		return &armada_ayn_thor;
+		if (!panel_name_is(android_dtb, "/soc/qcom,dsi-display-primary",
+				   dev->primary_panel))
+			continue;
 
-	return NULL;
+		if (dev->secondary_panel &&
+		    !panel_name_is(android_dtb, "/soc/qcom,dsi-display-secondary",
+				   dev->secondary_panel))
+			continue;
+
+		if (match)
+			return NULL;
+
+		match = &dev->device;
+	}
+
+	return match;
 }
 
 
