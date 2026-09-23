@@ -168,7 +168,7 @@ static EFI_STATUS check_dtb_hash(void *dtb)
 	if (!SecureBootEnabled())
 		return EFI_SUCCESS;
 
-	old_hash = LibGetVariable(L"DtbloaderDtbHash", &gEfiGlobalVariableGuid);
+	old_hash = LibGetVariable(L"AdtbloaderDtbHash", &gEfiGlobalVariableGuid);
 
 	_Static_assert(sizeof(new_hash) == 20, "");
 	SHA1((void*)&new_hash, (void*)dtb, dtb_size);
@@ -181,10 +181,10 @@ static EFI_STATUS check_dtb_hash(void *dtb)
 	if (hashes_match)
 		return EFI_SUCCESS;
 
-	Print(L"%es\n", L"(dtbloader) DTB has changed! Press any key to confirm...");
+	Print(L"%es\n", L"(adtbloader) DTB has changed! Press any key to confirm...");
 	Pause();
 
-	status = LibSetNVVariable(L"DtbloaderDtbHash", &gEfiGlobalVariableGuid, sizeof(new_hash), &new_hash);
+	status = LibSetNVVariable(L"AdtbloaderDtbHash", &gEfiGlobalVariableGuid, sizeof(new_hash), &new_hash);
 	if (EFI_ERROR(status))
 		return status;
 
@@ -251,14 +251,14 @@ static EFI_STATUS efi_dt_fixup(EFI_DT_FIXUP_PROTOCOL *this, void *dtb, UINTN *si
 
 	ret = fdt_open_into(dtb, dtb, *size);
 	if (ret) {
-		Print(L"(dtbloader) fdt open failed: %d\n", ret);
+		Print(L"(adtbloader) fdt open failed: %d\n", ret);
 		return EFI_INVALID_PARAMETER;
 	}
 
 	if (flags & EFI_DT_APPLY_FIXUPS) {
 		status = apply_dt_fixups(dev, dtb);
 		if (EFI_ERROR(status)) {
-			Print(L"(dtbloader) Failed to fixup dtb: %r\n", status);
+			Print(L"(adtbloader) Failed to fixup dtb: %r\n", status);
 			return status;
 		}
 	}
@@ -293,7 +293,7 @@ EFI_STATUS efi_main(EFI_HANDLE ImageHandle, EFI_SYSTEM_TABLE *SystemTable)
 	struct device *dev;
 
 	InitializeLib(ImageHandle, SystemTable);
-	Dbg(L"dtbloader!\n");
+	Dbg(L"adtbloader!\n");
 
 	dev = match_device();
 	if (!dev) {

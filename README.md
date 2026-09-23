@@ -1,14 +1,16 @@
-# dtbloader
+# adtbloader
 
-dtbloader is an EFI driver that finds and installs DeviceTree into the UEFI configuration table.
+adtbloader is an ArmadaOS fork of dtbloader, an EFI driver that finds and installs DeviceTree into
+the UEFI configuration table.
 
 Since most existing Windows-on-Arm devices focus on Windows, they use ACPI to boot. In many cases
-though, this ACPI is hard or impossible to use with Linux so instead DT should be used. dtbloader
+though, this ACPI is hard or impossible to use with Linux so instead DT should be used. adtbloader
 attempts to simplify running Linux-based or other OS that use DT by providing:
 
 - **Device detection** that uses DMI to pick which DTB should be used.
 - **Device-specific DT fixups** to allow tailoring generic dtb to a given device (i.e. set hw variants, MAC...)
 - **DT Fixup protocol** to allow bootloaders like sd-boot to load their own dtb while still applying the fixups.
+- **Android DT detection** as a fallback for supported ArmadaOS handhelds when SMBIOS cannot identify them.
 
 ## Supported devices
 
@@ -54,6 +56,7 @@ attempts to simplify running Linux-based or other OS that use DT by providing:
 - <!-- x1e001de --> QTI Snapdragon Devkit for Windows (x1e)
 - <!-- qcs6490 --> Radxa Dragon Q6A
 - *<!-- sc8280xp --> Radxa Dragon Q8B*
+- <!-- qcs8550 --> Retroid Pocket Nova
 
 (Note: Devices marked with *italic* may not be available in upstream Linux or linux-next yet.)
 
@@ -83,14 +86,14 @@ make -j$(nproc)
 
 Use `make DEBUG=1` to enable additional log messages.
 
-Note that dtbloader uses `clang` and `lld` to be built. You may also need additional tools from `llvm` package.
+Note that adtbloader uses `clang` and `lld` to be built. You may also need additional tools from `llvm` package.
 
 ## Usage
 
 Some bootloaders such as systemd-boot provide driver boot directory. If you use sd-boot, you may place
-`dtbloader.efi` to ESP as `/EFI/systemd/drivers/dtbloaderaa64.efi` (where `aa64` is the arch suffix).
+`adtbloader.efi` on the ESP as `/EFI/systemd/drivers/adtbloaderaa64.efi` (where `aa64` is the arch suffix).
 
-To instead manually install dtbloader, copy the file to ESP and use `efibootmgr -rcl "dtbloader.efi" -L "dtbloader" -d /dev/nvme0n1 -p 12`
+To instead manually install adtbloader, copy the file to ESP and use `efibootmgr -rcl "adtbloader.efi" -L "adtbloader" -d /dev/nvme0n1 -p 12`
 (replacing 12 with your EFI System Partition number or making `/dev/nvme0n1` match your install disk)
 to add it to the beginning of `DriverOrder`.
 
@@ -100,7 +103,7 @@ Alternatively boot into efi shell, then:
 # Switch to the ESP partition (replace fs0 with yours)
 Shell:\> fs0:
 # Install the driver into the boot order
-fs0:\> bcfg driver add 1 dtbloader.efi "dtbloader"
+fs0:\> bcfg driver add 1 adtbloader.efi "adtbloader"
 # On some devices you may need to add optional data
 # to the driver entry for firmware to load it.
 fs0:\> echo none > tmp.txt
@@ -108,7 +111,7 @@ fs0:\> bcfg driver -opt 1 tmp.txt
 fs0:\> rm tmp.txt
 ```
 
-dtbloader will look for the dtb files in the partition it was installed on. It will look into:
+adtbloader will look for the dtb files in the partition it was installed on. It will look into:
 `/dtbloader/dtbs/`; `dtbs/`; `/` in order of priority.
 
 > [!WARNING]
@@ -116,7 +119,7 @@ dtbloader will look for the dtb files in the partition it was installed on. It w
 > bootloader related partitions.
 
 > [!TIP]
-> If SecureBoot is enabled, dtbloader will save the DTB hash into an uefi varialbe and show a warning
+> If SecureBoot is enabled, adtbloader will save the DTB hash into a UEFI variable and show a warning
 > in case the hash changes. Hash will be updated automatically after.
 
 ## Acknowledgements

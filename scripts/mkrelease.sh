@@ -25,8 +25,8 @@ cp $BUILD_DIR/*.efi "$BLOB_DIR"
 git ls-files --recurse-submodules \
 	| tar 	--sort=name --mtime="@0" \
 		--owner=0 --group=0 --numeric-owner \
-		--transform "s,^,dtbloader-$TAG/," \
-		-caf "$BLOB_DIR/dtbloader-$TAG.tar.gz" -T-
+		--transform "s,^,adtbloader-$TAG/," \
+		-caf "$BLOB_DIR/adtbloader-$TAG.tar.gz" -T-
 
 sign_everything "$BLOB_DIR"
 
@@ -35,4 +35,3 @@ echo Done building!
 echo Now you can push the tag: "git push origin $TAG"
 echo and upload the artifacts from "$BLOB_DIR"
 echo ==========================================================
-

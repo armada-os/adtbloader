@@ -14,6 +14,48 @@
 __declspec(allocate(".devs$a")) struct device *__start_dtbloader_dev = NULL;
 __declspec(allocate(".devs$d")) struct device *__stop_dtbloader_dev = NULL;
 
+static struct device armada_retroid_pocket_nova = {
+	.name = L"Retroid Pocket Nova",
+	.dtb = L"qcom\\qcs8550-retroidpocket-rpnova.dtb",
+};
+
+static struct device *match_armada_device(void)
+{
+	EFI_GUID dtb_table_guid = EFI_DTB_TABLE_GUID;
+	void *android_dtb;
+	const fdt32_t *panel_phandle;
+	const char *panel_name;
+	int display, panel, len;
+
+	if (EFI_ERROR(LibGetSystemConfigurationTable(&dtb_table_guid, &android_dtb)))
+		return NULL;
+
+	if (fdt_check_header(android_dtb))
+		return NULL;
+
+	if (fdt_node_check_compatible(android_dtb, 0, "qcom,kalamap-hdk"))
+		return NULL;
+
+	display = fdt_path_offset(android_dtb, "/soc/qcom,dsi-display-primary");
+	if (display < 0)
+		return NULL;
+
+	panel_phandle = fdt_getprop(android_dtb, display, "qcom,dsi-default-panel", &len);
+	if (!panel_phandle || len != sizeof(*panel_phandle))
+		return NULL;
+
+	panel = fdt_node_offset_by_phandle(android_dtb, fdt32_to_cpu(*panel_phandle));
+	if (panel < 0)
+		return NULL;
+
+	panel_name = fdt_getprop(android_dtb, panel, "qcom,mdss-dsi-panel-name", &len);
+	if (!panel_name || !fdt_stringlist_contains(panel_name, len,
+						    "il97680a amoled panel without DSC"))
+		return NULL;
+
+	return &armada_retroid_pocket_nova;
+}
+
 
 /**
  * match_device() - Detect the device.
@@ -47,8 +89,10 @@ struct device *match_device(void)
 
 	status = populate_board_hwids(hwids);
 	if (EFI_ERROR(status)) {
-		Print(L"Failed to populate board hwids: %r\n", status);
-		return NULL;
+		cached_dev = match_armada_device();
+		if (!cached_dev)
+			Print(L"Failed to populate board hwids: %r\n", status);
+		return cached_dev;
 	}
 
 	for (i = 0; i < ARRAY_SIZE(priority); ++i) {
@@ -65,7 +109,8 @@ struct device *match_device(void)
 		}
 	}
 
-	return NULL;
+	cached_dev = match_armada_device();
+	return cached_dev;
 }
 
 static bool dt_check_existing_mac_prop(void *dtb, int node, const char *prop)
@@ -119,4 +164,3 @@ EFI_STATUS dt_update_mac(void *dtb, const char * const compatibles[], unsigned n
 
 	return EFI_SUCCESS;
 }
-
