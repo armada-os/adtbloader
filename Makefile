@@ -52,9 +52,9 @@ OBJS := \
 	$(DEVICE_SRCS:%.c=$(O)/src/devices/%.o)
 
 
-all: $(O)/dtbloader.efi
+all: $(O)/adtbloader.efi
 
-$(O)/dtbloader.efi: $(OBJS) $(LIBEFI) $(LIBFDT) $(LIBSHA1)
+$(O)/adtbloader.efi: $(OBJS) $(LIBEFI) $(LIBFDT) $(LIBSHA1)
 	@echo [LD] $(notdir $@)
 	@mkdir -p $(dir $@)
 	@$(LD) $(LDFLAGS) -subsystem:efi_boot_service_driver $^ -out:$@

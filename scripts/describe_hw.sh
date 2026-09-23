@@ -8,7 +8,7 @@ name_field="Family"
 
 usage() {
 	echo "Usage: $0 [-h] [-d DTB_NAME] [-f FILE] [-n NAME]"
-	echo "Generate hardware description struct for dtbloader."
+	echo "Generate hardware description struct for adtbloader."
 	echo
 	echo "  -d DTB	Set the name of the DTB to use."
 	echo "  -f FILE	Read FILE as fwupdtool hwids output."
@@ -84,4 +84,3 @@ echo "	.dtb   = L\"$(echo "$dtb_name" | sed 's_[/\\]_\\\\_')\","
 echo "	.hwids = ""$var_prefix""_hwids,"
 echo "};"
 echo "DEVICE_DESC(""$var_prefix""_dev);"
-

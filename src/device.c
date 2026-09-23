@@ -14,6 +14,65 @@
 __declspec(allocate(".devs$a")) struct device *__start_dtbloader_dev = NULL;
 __declspec(allocate(".devs$d")) struct device *__stop_dtbloader_dev = NULL;
 
+static struct device armada_retroid_pocket_nova = {
+	.name = L"Retroid Pocket Nova",
+	.dtb = L"qcom\\qcs8550-retroidpocket-rpnova.dtb",
+};
+
+static struct device armada_ayn_thor = {
+	.name = L"AYN Thor",
+	.dtb = L"qcom\\qcs8550-ayn-thor.dtb",
+};
+
+static bool panel_name_is(void *dtb, const char *display_path, const char *expected)
+{
+	const fdt32_t *panel_phandle;
+	const char *panel_name;
+	int display, panel, len;
+
+	display = fdt_path_offset(dtb, display_path);
+	if (display < 0)
+		return false;
+
+	panel_phandle = fdt_getprop(dtb, display, "qcom,dsi-default-panel", &len);
+	if (!panel_phandle || len != sizeof(*panel_phandle))
+		return false;
+
+	panel = fdt_node_offset_by_phandle(dtb, fdt32_to_cpu(*panel_phandle));
+	if (panel < 0)
+		return false;
+
+	panel_name = fdt_getprop(dtb, panel, "qcom,mdss-dsi-panel-name", &len);
+	return panel_name && fdt_stringlist_contains(panel_name, len, expected);
+}
+
+static struct device *match_armada_device(void)
+{
+	EFI_GUID dtb_table_guid = EFI_DTB_TABLE_GUID;
+	void *android_dtb;
+
+	if (EFI_ERROR(LibGetSystemConfigurationTable(&dtb_table_guid, &android_dtb)))
+		return NULL;
+
+	if (fdt_check_header(android_dtb))
+		return NULL;
+
+	if (fdt_node_check_compatible(android_dtb, 0, "qcom,kalamap-hdk"))
+		return NULL;
+
+	if (panel_name_is(android_dtb, "/soc/qcom,dsi-display-primary",
+			  "il97680a amoled panel without DSC"))
+		return &armada_retroid_pocket_nova;
+
+	if (panel_name_is(android_dtb, "/soc/qcom,dsi-display-primary",
+			  "icna3520 amoled panel with DSC") &&
+	    panel_name_is(android_dtb, "/soc/qcom,dsi-display-secondary",
+			  "ch13726a video mode dsi boe panel with DSC"))
+		return &armada_ayn_thor;
+
+	return NULL;
+}
+
 
 /**
  * match_device() - Detect the device.
@@ -47,8 +106,10 @@ struct device *match_device(void)
 
 	status = populate_board_hwids(hwids);
 	if (EFI_ERROR(status)) {
-		Print(L"Failed to populate board hwids: %r\n", status);
-		return NULL;
+		cached_dev = match_armada_device();
+		if (!cached_dev)
+			Print(L"Failed to populate board hwids: %r\n", status);
+		return cached_dev;
 	}
 
 	for (i = 0; i < ARRAY_SIZE(priority); ++i) {
@@ -65,7 +126,8 @@ struct device *match_device(void)
 		}
 	}
 
-	return NULL;
+	cached_dev = match_armada_device();
+	return cached_dev;
 }
 
 static bool dt_check_existing_mac_prop(void *dtb, int node, const char *prop)
@@ -119,4 +181,3 @@ EFI_STATUS dt_update_mac(void *dtb, const char * const compatibles[], unsigned n
 
 	return EFI_SUCCESS;
 }
-

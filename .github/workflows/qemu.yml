@@ -11,7 +11,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           submodules: recursive
-      - name: Build dtbloader
+      - name: Build adtbloader
         run: git clean -dxf && make -j$(nproc) DEBUG=1 CFLAGS_SRC="-Wall -Werror -fsanitize=undefined -fsanitize-trap=all"
       - name: Prepare ESP
         run: dtc .ci/dummy.dts -o build-aarch64/msm8998-lenovo-miix-630.dtb
@@ -28,7 +28,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           submodules: recursive
-      - name: Build dtbloader
+      - name: Build adtbloader
         run: git clean -dxf && make -j$(nproc) DEBUG=1 CFLAGS_SRC="-Wall -Werror -fsanitize=undefined -fsanitize-trap=all"
       - name: Prepare ESP
         run: dtc .ci/dummy.dts -o build-aarch64/msm8998-lenovo-miix-630.dtb

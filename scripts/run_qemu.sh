@@ -7,7 +7,7 @@ cat << EOF > "$BUILDDIR/startup.nsh"
 @echo -off
 fs0:
 echo =====================================
-load dtbloader.efi
+load adtbloader.efi
 echo =====================================
 reset -s
 EOF
@@ -50,4 +50,3 @@ timeout --foreground \
 			| sed \
 				-e 's/\x1b\[[0-9]\+;01H/\n/g' \
 				-e 's/\x1b\[[0-9?]\+[^m0-9?]//g'
-
