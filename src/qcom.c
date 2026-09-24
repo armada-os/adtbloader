@@ -25,6 +25,8 @@ typedef struct {
 #define PARTITION_TYPE_OTHER 0x00
 #define PARTITION_TYPE_MBR 0x01
 #define PARTITION_TYPE_GPT 0x02
+#define QCOM_AB_PARTITION_ACTIVE (1ULL << 50)
+#define ANDROID_DT_TABLE_MAGIC 0xd7b7ab1e
 
 typedef struct {
 
@@ -71,6 +73,111 @@ static EFI_STATUS locate_gpt_partition(CHAR16 *name, EFI_HANDLE *partition_handl
 
 	FreePool(disk_handles);
 	return EFI_NOT_FOUND;
+}
+
+static EFI_STATUS partition_attributes(EFI_HANDLE partition_handle,
+				       UINT64 *attributes)
+{
+	EFI_GUID partition_info_guid = EFI_PARTITION_INFO_PROTOCOL_GUID;
+	EFI_PARTITION_INFO_PROTOCOL *partition;
+	EFI_STATUS status;
+
+	status = uefi_call_wrapper(BS->HandleProtocol, 3, partition_handle,
+				   &partition_info_guid, (void **)&partition);
+	if (EFI_ERROR(status))
+		return status;
+
+	if (partition->Type != PARTITION_TYPE_GPT)
+		return EFI_UNSUPPORTED;
+
+	*attributes = partition->Info.Gpt.Attributes;
+	return EFI_SUCCESS;
+}
+
+static EFI_STATUS locate_active_slot_partition(EFI_HANDLE *partition_handle)
+{
+	static CHAR16 *boot_names[] = { L"boot_a", L"boot_b" };
+	static CHAR16 *dtbo_names[] = { L"dtbo_a", L"dtbo_b" };
+	EFI_HANDLE boot[2];
+	EFI_STATUS status;
+	UINT64 attributes[2];
+	unsigned active, i;
+
+	for (i = 0; i < 2; ++i) {
+		status = locate_gpt_partition(boot_names[i], &boot[i]);
+		if (EFI_ERROR(status))
+			return status;
+
+		status = partition_attributes(boot[i], &attributes[i]);
+		if (EFI_ERROR(status))
+			return status;
+	}
+
+	if (!!(attributes[0] & QCOM_AB_PARTITION_ACTIVE) ==
+	    !!(attributes[1] & QCOM_AB_PARTITION_ACTIVE))
+		return EFI_NOT_FOUND;
+
+	active = attributes[1] & QCOM_AB_PARTITION_ACTIVE ? 1 : 0;
+	return locate_gpt_partition(dtbo_names[active], partition_handle);
+}
+
+EFI_STATUS qcom_read_active_dtbo(void **dtbo, UINTN *len)
+{
+	struct {
+		fdt32_t magic;
+		fdt32_t total_size;
+	} header;
+	EFI_BLOCK_IO_PROTOCOL *block_io;
+	EFI_DISK_IO_PROTOCOL *disk_io;
+	EFI_HANDLE partition;
+	EFI_STATUS status;
+	UINT64 partition_size;
+	UINTN size;
+	void *buf;
+
+	status = locate_active_slot_partition(&partition);
+	if (EFI_ERROR(status))
+		return status;
+
+	status = uefi_call_wrapper(BS->HandleProtocol, 3, partition,
+				   &gEfiBlockIoProtocolGuid, (void **)&block_io);
+	if (EFI_ERROR(status))
+		return status;
+
+	status = uefi_call_wrapper(BS->HandleProtocol, 3, partition,
+				   &gEfiDiskIoProtocolGuid, (void **)&disk_io);
+	if (EFI_ERROR(status))
+		return status;
+
+	status = uefi_call_wrapper(disk_io->ReadDisk, 5, disk_io,
+				   block_io->Media->MediaId, 0,
+				   sizeof(header), &header);
+	if (EFI_ERROR(status))
+		return status;
+
+	if (fdt32_to_cpu(header.magic) != ANDROID_DT_TABLE_MAGIC)
+		return EFI_UNSUPPORTED;
+
+	size = fdt32_to_cpu(header.total_size);
+	partition_size = (block_io->Media->LastBlock + 1) *
+			 block_io->Media->BlockSize;
+	if (size < sizeof(header) || size > partition_size)
+		return EFI_BAD_BUFFER_SIZE;
+
+	buf = AllocatePool(size);
+	if (!buf)
+		return EFI_OUT_OF_RESOURCES;
+
+	status = uefi_call_wrapper(disk_io->ReadDisk, 5, disk_io,
+				   block_io->Media->MediaId, 0, size, buf);
+	if (EFI_ERROR(status)) {
+		FreePool(buf);
+		return status;
+	}
+
+	*dtbo = buf;
+	*len = size;
+	return EFI_SUCCESS;
 }
 
 /**

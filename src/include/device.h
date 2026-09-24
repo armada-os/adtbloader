@@ -49,5 +49,6 @@ EFI_STATUS dt_update_mac(void *dtb, const char * const compatibles[], unsigned n
 
 /* qcom.c */
 EFI_STATUS qcom_dt_set_dpp_mac(struct device *dev, void *dtb);
+EFI_STATUS qcom_read_active_dtbo(void **dtbo, UINTN *len);
 
 #endif

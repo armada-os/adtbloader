@@ -14,23 +14,76 @@
 __declspec(allocate(".devs$a")) struct device *__start_dtbloader_dev = NULL;
 __declspec(allocate(".devs$d")) struct device *__stop_dtbloader_dev = NULL;
 
-static struct device armada_retroid_pocket_nova = {
-	.name = L"Retroid Pocket Nova",
-	.dtb = L"qcom\\qcs8550-retroidpocket-rpnova.dtb",
+struct armada_device_match {
+	struct device device;
+	const char *android_compatible;
+	const char *primary_panel;
+	const char *secondary_panel;
 };
 
-static struct device armada_ayn_thor = {
-	.name = L"AYN Thor",
-	.dtb = L"qcom\\qcs8550-ayn-thor.dtb",
+#define ANDROID_DT_TABLE_MAGIC 0xd7b7ab1e
+
+struct android_dt_table_header {
+	fdt32_t magic;
+	fdt32_t total_size;
+	fdt32_t header_size;
+	fdt32_t entry_size;
+	fdt32_t entry_count;
+	fdt32_t entries_offset;
+	fdt32_t page_size;
+	fdt32_t version;
 };
 
-static bool panel_name_is(void *dtb, const char *display_path, const char *expected)
+struct android_dt_table_entry {
+	fdt32_t dt_size;
+	fdt32_t dt_offset;
+	fdt32_t id;
+	fdt32_t rev;
+	fdt32_t custom[4];
+};
+
+static struct armada_device_match armada_devices[] = {
+	{
+		.device = {
+			.name = L"Retroid Pocket Nova",
+			.dtb = L"qcom\\qcs8550-retroidpocket-rpnova.dtb",
+		},
+		.android_compatible = "qcom,kalamap-hdk",
+		.primary_panel = "il97680a amoled panel without DSC",
+	},
+	{
+		.device = {
+			.name = L"AYN Thor",
+			.dtb = L"qcom\\qcs8550-ayn-thor.dtb",
+		},
+		.android_compatible = "qcom,kalamap-hdk",
+		.primary_panel = "icna3520 amoled panel with DSC",
+		.secondary_panel = "ch13726a video mode dsi boe panel with DSC",
+	},
+	{
+		.device = {
+			.name = L"AYN Odin 3",
+			.dtb = L"qcom\\cq8725s-ayn-odin3.dtb",
+		},
+		.android_compatible = "qcom,sunp-hdk",
+		.primary_panel = "icna3520 amoled panel with DSC",
+	},
+};
+
+static bool panel_name_is(void *dtb, const char *label, const char *expected)
 {
 	const fdt32_t *panel_phandle;
-	const char *panel_name;
+	const char *display_label, *panel_name;
 	int display, panel, len;
 
-	display = fdt_path_offset(dtb, display_path);
+	display = -1;
+	while ((display = fdt_node_offset_by_compatible(
+			dtb, display, "qcom,dsi-display")) >= 0) {
+		display_label = fdt_getprop(dtb, display, "label", &len);
+		if (display_label && fdt_stringlist_contains(display_label, len, label))
+			break;
+	}
+
 	if (display < 0)
 		return false;
 
@@ -46,31 +99,106 @@ static bool panel_name_is(void *dtb, const char *display_path, const char *expec
 	return panel_name && fdt_stringlist_contains(panel_name, len, expected);
 }
 
+static struct device *match_armada_dtb(void *android_dtb)
+{
+	struct device *match = NULL;
+	unsigned i;
+
+	for (i = 0; i < ARRAY_SIZE(armada_devices); ++i) {
+		struct armada_device_match *dev = &armada_devices[i];
+
+		if (fdt_node_check_compatible(android_dtb, 0, dev->android_compatible))
+			continue;
+
+		if (!panel_name_is(android_dtb, "primary",
+				   dev->primary_panel))
+			continue;
+
+		if (dev->secondary_panel &&
+		    !panel_name_is(android_dtb, "secondary",
+				   dev->secondary_panel))
+			continue;
+
+		if (match)
+			return NULL;
+
+		match = &dev->device;
+	}
+
+	return match;
+}
+
+static struct device *match_armada_dtbo(void *dtbo, UINTN len)
+{
+	struct android_dt_table_header *header = dtbo;
+	struct device *match = NULL;
+	UINT32 entries_offset, entry_count, entry_size;
+	unsigned i;
+
+	if (len < sizeof(*header) ||
+	    fdt32_to_cpu(header->magic) != ANDROID_DT_TABLE_MAGIC ||
+	    fdt32_to_cpu(header->total_size) > len ||
+	    fdt32_to_cpu(header->header_size) < sizeof(*header))
+		return NULL;
+
+	entries_offset = fdt32_to_cpu(header->entries_offset);
+	entry_count = fdt32_to_cpu(header->entry_count);
+	entry_size = fdt32_to_cpu(header->entry_size);
+	if (entry_size < sizeof(struct android_dt_table_entry) ||
+	    entries_offset > len ||
+	    entry_count > (len - entries_offset) / entry_size)
+		return NULL;
+
+	for (i = 0; i < entry_count; ++i) {
+		struct android_dt_table_entry *entry;
+		struct device *candidate;
+		UINT32 dt_offset, dt_size;
+		void *dtb;
+
+		entry = (void *)((UINT8 *)dtbo + entries_offset + i * entry_size);
+		dt_offset = fdt32_to_cpu(entry->dt_offset);
+		dt_size = fdt32_to_cpu(entry->dt_size);
+		if (dt_offset > len || dt_size > len - dt_offset)
+			continue;
+
+		dtb = (UINT8 *)dtbo + dt_offset;
+		if (fdt_check_header(dtb) || fdt_totalsize(dtb) > dt_size)
+			continue;
+
+		candidate = match_armada_dtb(dtb);
+		if (!candidate)
+			continue;
+		if (match && match != candidate)
+			return NULL;
+
+		match = candidate;
+	}
+
+	return match;
+}
+
 static struct device *match_armada_device(void)
 {
 	EFI_GUID dtb_table_guid = EFI_DTB_TABLE_GUID;
-	void *android_dtb;
+	struct device *match = NULL;
+	void *android_dtb, *dtbo;
+	EFI_STATUS status;
+	UINTN dtbo_len;
 
-	if (EFI_ERROR(LibGetSystemConfigurationTable(&dtb_table_guid, &android_dtb)))
+	status = LibGetSystemConfigurationTable(&dtb_table_guid, &android_dtb);
+	if (!EFI_ERROR(status) && !fdt_check_header(android_dtb)) {
+		match = match_armada_dtb(android_dtb);
+		if (match)
+			return match;
+	}
+
+	status = qcom_read_active_dtbo(&dtbo, &dtbo_len);
+	if (EFI_ERROR(status))
 		return NULL;
 
-	if (fdt_check_header(android_dtb))
-		return NULL;
-
-	if (fdt_node_check_compatible(android_dtb, 0, "qcom,kalamap-hdk"))
-		return NULL;
-
-	if (panel_name_is(android_dtb, "/soc/qcom,dsi-display-primary",
-			  "il97680a amoled panel without DSC"))
-		return &armada_retroid_pocket_nova;
-
-	if (panel_name_is(android_dtb, "/soc/qcom,dsi-display-primary",
-			  "icna3520 amoled panel with DSC") &&
-	    panel_name_is(android_dtb, "/soc/qcom,dsi-display-secondary",
-			  "ch13726a video mode dsi boe panel with DSC"))
-		return &armada_ayn_thor;
-
-	return NULL;
+	match = match_armada_dtbo(dtbo, dtbo_len);
+	FreePool(dtbo);
+	return match;
 }
 
 
