@@ -153,7 +153,7 @@ static struct device *match_armada_dtbo(void *dtbo, UINTN len)
 		struct android_dt_table_entry *entry;
 		struct device *candidate;
 		UINT32 dt_offset, dt_size;
-		void *dtb;
+		void *dtb, *aligned_dtb = NULL;
 
 		entry = (void *)((UINT8 *)dtbo + entries_offset + i * entry_size);
 		dt_offset = fdt32_to_cpu(entry->dt_offset);
@@ -162,16 +162,28 @@ static struct device *match_armada_dtbo(void *dtbo, UINTN len)
 			continue;
 
 		dtb = (UINT8 *)dtbo + dt_offset;
+		if ((UINTN)dtb % sizeof(UINT64)) {
+			aligned_dtb = AllocatePool(dt_size);
+			if (!aligned_dtb)
+				continue;
+			CopyMem(aligned_dtb, dtb, dt_size);
+			dtb = aligned_dtb;
+		}
 		if (fdt_check_header(dtb) || fdt_totalsize(dtb) > dt_size)
-			continue;
+			goto next;
 
 		candidate = match_armada_dtb(dtb);
-		if (!candidate)
-			continue;
-		if (match && match != candidate)
+		if (candidate && match && match != candidate) {
+			if (aligned_dtb)
+				FreePool(aligned_dtb);
 			return NULL;
+		}
+		if (candidate)
+			match = candidate;
 
-		match = candidate;
+	next:
+		if (aligned_dtb)
+			FreePool(aligned_dtb);
 	}
 
 	return match;
